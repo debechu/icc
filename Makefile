@@ -1,6 +1,6 @@
 export BUILD_DIR  := $(abspath ./build)
 export TARGET_DIR := $(abspath ./bin)
-TARGET_DEPS_DIR   :=  $(TARGET_DIR)/deps
+TARGET_DEPS_DIR   := $(TARGET_DIR)/deps
 
 TARGET_NAME = icc
 TARGET_EXE_FILE = $(TARGET_DIR)/$(TARGET_NAME)
@@ -63,5 +63,6 @@ $(TARGET_DEPS_DIR)/libsail.a: ./build/sail
 clean:
 	-rm -r $(BUILD_DIR)
 	-rm -r $(TARGET_DIR)
+	-rm -r $(TARGET_DEPS_DIR)
 
 -include $(CLI_DEPS_FILES) $(LIB_DEPS_FILES)
