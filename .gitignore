@@ -1,0 +1,6 @@
+bin/
+build/
+
+.clangd
+.ignore
+compile_flags.txt
