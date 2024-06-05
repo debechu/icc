@@ -1,5 +1,7 @@
 #include "args.h"
+#include "sail-common/common_serialize.h"
 
+#include <sail/sail.h>
 #include <stdio.h>
 
 static const char help_string[] =
@@ -31,7 +33,22 @@ int main(int argc, const char **argv)
         return 1;
     }
 
-    fprintf(stderr, "Image file: %s\n", args.img_file);
+    fprintf(stderr, "Loading image file: %s\n", args.img_file);
+
+    struct sail_image *image = NULL;
+    SAIL_TRY(sail_load_from_file(args.img_file, &image));
+
+    fprintf(stderr, "Image width: %d\n", image->width);
+    fprintf(stderr, "Image height: %d\n", image->height);
+    fprintf(stderr, "Image bytes per line: %d\n", image->bytes_per_line);
+    fprintf(
+        stderr,
+        "Image pixel format: %s\n",
+        sail_pixel_format_to_string(image->pixel_format)
+    );
+
+    sail_destroy_image(image);
+    image = NULL;
 
     return 0;
 }

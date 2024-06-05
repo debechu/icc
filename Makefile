@@ -9,14 +9,19 @@ TARGET_LIB_FILE = $(TARGET_DIR)/lib$(TARGET_NAME).a
 INCL_DIRS   = ./include ./deps/sail/src '$(BUILD_DIR)/sail/include'
 INCL_FLAGS := $(addprefix -I,$(INCL_DIRS))
 
+LIBS_DIRS = $(TARGET_DIR) $(TARGET_DEPS_DIR)
+LIBS_FLAGS = $(addprefix -L,$(LIBS_DIRS))
+
 CLI_SRC_DIR     = ./cli
 CLI_SRC_FILES  := $(shell find "$(CLI_SRC_DIR)" -name '*.c')
 CLI_OBJ_FILES  := $(CLI_SRC_FILES:%.c=$(BUILD_DIR)/%.o)
 CLI_DEPS_FILES := $(CLI_OBJ_FILES:%.o=$(BUILD_DIR)/%.d)
 
-CLI_LIBS        = sail
-CLI_LIBS_FLAG  := '-L$(TARGET_DIR)' '-l:$(TARGET_LIB_FILE)' $(addprefix -l,$(CLI_LIBS))
-CLI_LIBS_FILES := $(CLI_LIBS:%=$(TARGET_DEPS_DIR)/lib%.a)
+CLI_LIBS        = sail sail-codecs sail-common
+CLI_LIBS_FLAGS += -ltiff -lpng -lgif -lavif -lwebp -lwebpdecoder -lwebpdemux
+CLI_LIBS_FLAGS += -ljpeg -ljasper -ljxl -ljxl_threads
+CLI_LIBS_FLAGS := $(CLI_LIBS_FLAGS) $(LIBS_FLAGS) -licc $(addprefix -l,$(CLI_LIBS))
+CLI_LIBS_FILES := $(TARGET_LIB_FILE) $(CLI_LIBS:%=$(TARGET_DEPS_DIR)/lib%.a)
 
 LIB_SRC_DIR     = ./lib
 LIB_SRC_FILES  := $(shell find "$(LIB_SRC_DIR)" -name '*.c')
