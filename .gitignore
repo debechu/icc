@@ -1,6 +1,9 @@
 bin/
 build/
 
+**/result*
+**/result*/
+
 .clangd
 .ignore
 compile_flags.txt

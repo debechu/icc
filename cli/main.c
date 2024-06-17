@@ -8,7 +8,7 @@ static const char help_string[] =
     "icc - image color clustering\n"
     "\n"
     "Usage:\n"
-    "  icc <img-file>]\n"
+    "  icc <img-file>\n"
     "\n"
     "Options:\n"
     "  -h --help        Shows the help manual\n";

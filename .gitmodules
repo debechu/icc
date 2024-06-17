@@ -1,3 +1,0 @@
-[submodule "deps/sail"]
-	path = deps/sail
-	url = https://github.com/HappySeaFox/sail
