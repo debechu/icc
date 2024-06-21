@@ -39,12 +39,19 @@ int main(int argc, const char **argv)
     colors_t colors = {0};
     if (get_colors(args.img_file, &colors) != 0)
     {
-        fprintf(stderr, "Failed load image file: %s", args.img_file);
+        fprintf(
+            stderr,
+            "Failed load image file: %s",
+            args.img_file
+        );
         return 1;
     }
 
     colors_t dominants = {0};
-    if (get_dominant_colors(colors, &dominants) != 0)
+    if (get_dominant_colors(
+            &colors,
+            ICC_COLOR_TYPE_RGB,
+            &dominants) != 0)
     {
         fprintf(stderr, "Failed to get dominant colors!");
         return 1;
@@ -52,7 +59,7 @@ int main(int argc, const char **argv)
 
     for (int i = 0; i < dominants.count; ++i)
     {
-        color_t color = dominants.colors[i];
+        color_rgb_t color = dominants.colors[i].rgb;
         fprintf(
             stderr,
             "\x1b[48;2;%d;%d;%dm  ",
@@ -100,9 +107,9 @@ int get_colors(const char *file, colors_t *out)
         for (int i = 0; i < colors_count; ++i)
         {
             size_t idx = i*3;
-            colors[i].r = data[idx];
-            colors[i].g = data[idx+1];
-            colors[i].b = data[idx+2];
+            colors[i].rgb.r = data[idx];
+            colors[i].rgb.g = data[idx+1];
+            colors[i].rgb.b = data[idx+2];
         }
     }
 
@@ -111,6 +118,7 @@ int get_colors(const char *file, colors_t *out)
 
     out->count = colors_count;
     out->colors = colors;
+    out->type = ICC_COLOR_TYPE_RGB;
 
     return 0;
 }

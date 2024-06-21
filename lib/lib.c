@@ -1,20 +1,55 @@
 #include <icc/icc.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-static bool
-within_distance(color_t c1, color_t c2, float radius);
+static inline bool
+within_distance_hsv(
+    color_hsv_t c1,
+    color_hsv_t c2,
+    int32_t distance);
+
+static color_rgb_t
+hsv_to_rgb(color_hsv_t hsv);
+
+static color_hsv_t
+rgb_to_hsv(color_rgb_t rgb);
+
+static void
+sort_by_hue(colors_t *colors);
 
 /* TODO: Improve performance
  * TODO: Tweak parameters, try different averaging methods
+ * TODO: Find better way to test color proximity
  */
-int get_dominant_colors(colors_t colors, colors_t *out)
+int
+get_dominant_colors(
+    colors_t *colors,
+    color_type_t out_type, colors_t *out)
 {
-    const float scan_radius = 10.f;
-    const unsigned int core_requirement = 10;
-    size_t *clusters = calloc(colors.count, sizeof(size_t));
+    const int32_t scan_radius = 8;
+    const uint32_t core_requirement = colors->count * 0.03;
+    size_t *clusters = calloc(colors->count, sizeof(size_t));
+
+    /* Sort the colors by hue to make processing more
+     * efficient later. If color is not yet in HSV format,
+     * convert it at the same time.
+     */
+    if (colors->type != ICC_COLOR_TYPE_HSV)
+    {
+        fprintf(
+            stderr,
+            "Converting colors from RGB to HSV...]\n"
+        );
+
+        colors->type = ICC_COLOR_TYPE_HSV;
+        for (size_t i = 0; i < colors->count; ++i)
+        {
+            colors->colors[i].hsv =
+                rgb_to_hsv(colors->colors[i].rgb);
+        }
+    }
+    sort_by_hue(colors);
 
     /* We divide the colors into two different groups:
      * - colors that are a core part of the cluster; and
@@ -24,43 +59,68 @@ int get_dominant_colors(colors_t colors, colors_t *out)
      * contains non-core colors. This helps with creating
      * the clusters later.
      */
-    fprintf(stderr, "Separating %zu colors into cores...\n", colors.count);
+    fprintf(
+        stderr,
+        "Separating %zu colors into cores...\n",
+        colors->count
+    );
 
     size_t cores_count = 0;
-    for (size_t i = 0; i < colors.count; ++i)
+    size_t normals_count = 0;
+    color_hsv_t *colors_separated =
+        calloc(colors->count, sizeof(color_hsv_t));
+    for (size_t i = 0; i < colors->count; ++i)
     {
-        if (i % 1000 == 0)
-        {
-            fprintf(stderr, "Scanning color %zu...\n", i);
-        }
+        // if (i % 1000 == 0)
+        // {
+        //     fprintf(stderr, "Scanning color %zu...\n", i);
+        // }
 
+        color_hsv_t color = colors->colors[i].hsv;
         size_t colors_within_radius = 0;
-        for (size_t j = 0; j < colors.count; ++j)
+        if (i != 0)
         {
-            colors_within_radius += (j != i)
-                && within_distance(
-                    colors.colors[i],
-                    colors.colors[j],
-                    scan_radius
-                );
+            for (int j = i; j > 0; --j)
+            {
+                if (!within_distance_hsv(
+                    color,
+                    colors->colors[j-1].hsv,
+                    scan_radius))
+                {
+                    break;
+                }
+                ++colors_within_radius;
+            }
+        }
+        for (int j = i+1; j < colors->count; ++j)
+        {
+            if (!within_distance_hsv(
+                color,
+                colors->colors[j].hsv,
+                scan_radius))
+            {
+                break;
+            }
+            ++colors_within_radius;
         }
 
         if (colors_within_radius >= core_requirement)
         {
-            if (cores_count != i)
-            {
-                color_t temp = colors.colors[i];
-                colors.colors[i] = colors.colors[cores_count];
-                colors.colors[cores_count] = temp;
-            }
+            colors_separated[cores_count] = color;
             ++cores_count;
+        }
+        else
+        {
+            ++normals_count;
+            size_t index = colors->count - normals_count;
+            colors_separated[index] = color;
         }
     }
 
     fprintf(
         stderr,
         "Found %zu core colors and %zu non-core colors\n",
-        cores_count, colors.count - cores_count
+        cores_count, normals_count
     );
 
     size_t cluster_count = 0;
@@ -76,7 +136,11 @@ int get_dominant_colors(colors_t colors, colors_t *out)
         clusters[colors_processed] = cluster_count;
         ++colors_processed;
 
-        fprintf(stderr, "Creating cluster %zu...\n", cluster_count);
+        fprintf(
+            stderr,
+            "Creating cluster %zu...\n",
+            cluster_count
+        );
 
         /* We first check all the core colors and see if
          * any of them are close enough to the core colors
@@ -87,16 +151,16 @@ int get_dominant_colors(colors_t colors, colors_t *out)
         {
             for (size_t i = colors_processed; i < cores_count; ++i)
             {
-                if (within_distance(
-                    colors.colors[k],
-                    colors.colors[i],
+                if (within_distance_hsv(
+                    colors_separated[k],
+                    colors_separated[i],
                     scan_radius))
                 {
                     if (i != colors_processed)
                     {
-                        color_t temp = colors.colors[i];
-                        colors.colors[i] = colors.colors[colors_processed];
-                        colors.colors[colors_processed] = temp;
+                        color_hsv_t temp = colors_separated[i];
+                        colors_separated[i] = colors_separated[colors_processed];
+                        colors_separated[colors_processed] = temp;
                     }
                     clusters[colors_processed] = cluster_count;
                     ++colors_processed;
@@ -115,25 +179,25 @@ int get_dominant_colors(colors_t colors, colors_t *out)
          * are any, put them into the cluster.
          */
         size_t colors_in_cluster = 0;
-        for (size_t i = cores_count; i < colors.count; ++i)
+        for (size_t i = cores_count; i < colors->count; ++i)
         {
             for (size_t j = start; j < colors_processed; ++j)
             {
-                if (within_distance(
-                    colors.colors[i],
-                    colors.colors[j],
-                    scan_radius))
+                if (within_distance_hsv(
+                        colors_separated[i],
+                        colors_separated[j],
+                        scan_radius))
                 {
                     size_t index = colors_processed + colors_in_cluster;
                     if (i != cores_count)
                     {
-                        color_t temp = colors.colors[i];
-                        colors.colors[i] = colors.colors[cores_count];
-                        colors.colors[cores_count] = temp;
+                        color_hsv_t temp = colors_separated[i];
+                        colors_separated[i] = colors_separated[cores_count];
+                        colors_separated[cores_count] = temp;
                     }
-                    color_t temp = colors.colors[cores_count];
-                    colors.colors[cores_count] = colors.colors[index];
-                    colors.colors[index] = temp;
+                    color_hsv_t temp = colors_separated[cores_count];
+                    colors_separated[cores_count] = colors_separated[index];
+                    colors_separated[index] = temp;
                     clusters[index] = cluster_count;
                     colors_in_cluster += 1;
                     cores_count += 1;
@@ -158,41 +222,48 @@ int get_dominant_colors(colors_t colors, colors_t *out)
      */
     colors_t dominants = {
         .count = 0,
-        .colors = calloc(cluster_count, sizeof(color_t))
+        .colors = calloc(cluster_count, sizeof(color_t)),
+        .type = out_type
     };
     size_t *dominant_counts = calloc(cluster_count, sizeof(size_t));
     for (size_t i = 0; i < colors_processed;)
     {
         // Calculate average and count the number of colors.
         size_t current_cluster = clusters[i];
-        size_t avg_r = colors.colors[i].r;
-        size_t avg_g = colors.colors[i].g;
-        size_t avg_b = colors.colors[i].b;
+        size_t avg_h = colors_separated[i].h;
+        size_t avg_s = colors_separated[i].s;
+        size_t avg_v = colors_separated[i].v;
         size_t colors_count = 1;
         ++i;
 
         fprintf(
             stderr,
             "Calculating average value of cluster %zu...\n",
-            cluster_count
+            current_cluster
         );
 
         while (i < colors_processed)
         {
             if (clusters[i] != current_cluster) break;
-            color_t color = colors.colors[i];
-            avg_r += color.r;
-            avg_g += color.g;
-            avg_b += color.b;
+            color_hsv_t color = colors_separated[i];
+            avg_h += color.h;
+            avg_s += color.s;
+            avg_v += color.v;
             ++colors_count;
             ++i;
         }
 
         color_t avg = {
-            .r = avg_r / colors_count,
-            .g = avg_g / colors_count,
-            .b = avg_b / colors_count
+            .hsv = {
+                .h = avg_h / colors_count,
+                .s = avg_s / colors_count,
+                .v = avg_v / colors_count
+            }
         };
+        if (out_type == ICC_COLOR_TYPE_RGB)
+        {
+            avg.rgb = hsv_to_rgb(avg.hsv);
+        }
 
         // Insert the average value to the right position.
         size_t insert_idx = dominants.count;
@@ -220,6 +291,7 @@ int get_dominant_colors(colors_t colors, colors_t *out)
     }
 
     free(dominant_counts);
+    free(colors_separated);
     free(clusters);
 
     *out = dominants;
@@ -227,12 +299,205 @@ int get_dominant_colors(colors_t colors, colors_t *out)
     return 0;
 }
 
-static bool
-within_distance(color_t c1, color_t c2, float distance)
-{
-    float x = (float)c2.r - (float)c1.r;
-    float y = (float)c2.g - (float)c1.g;
-    float z = (float)c2.b - (float)c1.b;
+static void
+sort_by_hue_impl(
+    color_t *colors,
+    size_t start,
+    size_t length);
 
-    return sqrtf(x*x + y*y + z*z) <= distance;
+static void
+sort_by_hue(colors_t *colors)
+{
+    fprintf(stderr, "Sorting colors by hue...\n");
+    sort_by_hue_impl(colors->colors, 0, colors->count);
+}
+
+static void
+sort_by_hue_impl(
+    color_t *colors,
+    size_t start,
+    size_t length)
+{
+    if (length <= 1) return;
+
+    size_t half = length / 2;
+    size_t mid = start + half;
+    sort_by_hue_impl(colors, start, half);
+    sort_by_hue_impl(colors, mid, length - half);
+
+    size_t l = start;
+    size_t r = mid;
+    size_t end = start + length;
+
+    while (l < mid && r < end)
+    {
+        color_t rv = colors[r];
+        if (colors[l].hsv.h > rv.hsv.h)
+        {
+            for (size_t i = r; i > l; --i)
+            {
+                colors[i] = colors[i-1];
+            }
+            colors[l] = rv;
+            ++mid;
+            ++r;
+        }
+        ++l;
+    }
+}
+
+static color_hsv_t
+rgb_to_hsv(color_rgb_t rgb)
+{
+    color_hsv_t hsv = {0};
+
+    uint16_t values[3] = {0};
+    if (rgb.r >= rgb.g && rgb.r >= rgb.b)
+    {
+        if (rgb.b > rgb.g)
+        {
+            hsv.h = 300;
+            values[0] = rgb.r;
+            values[1] = rgb.b;
+            values[2] = rgb.g;
+        }
+        else
+        {
+            hsv.h = 0;
+            values[0] = rgb.r;
+            values[1] = rgb.g;
+            values[2] = rgb.b;
+        }
+    }
+    else if (rgb.g >= rgb.r && rgb.g >= rgb.b)
+    {
+        if (rgb.r > rgb.b)
+        {
+            hsv.h = 60;
+            values[0] = rgb.g;
+            values[1] = rgb.r;
+            values[2] = rgb.b;
+        }
+        else
+        {
+            hsv.h = 120;
+            values[0] = rgb.g;
+            values[1] = rgb.b;
+            values[2] = rgb.r;
+        }
+    }
+    else
+    {
+        if (rgb.g > rgb.r)
+        {
+            hsv.h = 180;
+            values[0] = rgb.b;
+            values[1] = rgb.g;
+            values[2] = rgb.r;
+        }
+        else
+        {
+            hsv.h = 240;
+            values[0] = rgb.b;
+            values[1] = rgb.r;
+            values[2] = rgb.g;
+        }
+    }
+
+    hsv.v = (100 * values[0]) / 255;
+    if (values[1] == values[2])
+    {
+        hsv.s = (100 - (100 * values[1]) / 255)
+            * (values[0] != values[1]);
+    }
+    else
+    {
+        uint16_t actual_2 = (values[2] * 255) / values[0];
+        hsv.s = 100 - (100 * (uint16_t)actual_2) / 255;
+
+        uint16_t actual_1 =
+            ((values[1] * 100 * 255) / values[0]
+                - (255 * (100 - (uint16_t)hsv.s))
+            ) / hsv.s;
+        hsv.h += (actual_1 * 60) / 255;
+
+        // fprintf(
+        //     stderr,
+        //     "rgb(%hu,%hu,%hu) -> hsv(%hu,%hhu,%hhu)\n",
+        //     values[0], values[1], values[2],
+        //     hsv.h, hsv.s, hsv.v
+        // );
+    }
+
+    return hsv;
+}
+
+static color_rgb_t
+hsv_to_rgb(color_hsv_t hsv)
+{
+    color_rgb_t rgb = {0};
+
+    hsv.h %= 360;
+    uint8_t *values[3] = {0};
+    if (hsv.h < 60)
+    {
+        values[0] = &rgb.r;
+        values[1] = &rgb.g;
+        values[2] = &rgb.b;
+    }
+    else if (hsv.h < 120)
+    {
+        values[0] = &rgb.g;
+        values[1] = &rgb.r;
+        values[2] = &rgb.b;
+    }
+    else if (hsv.h < 180)
+    {
+        values[0] = &rgb.g;
+        values[1] = &rgb.b;
+        values[2] = &rgb.r;
+    }
+    else if (hsv.h < 240)
+    {
+        values[0] = &rgb.b;
+        values[1] = &rgb.g;
+        values[2] = &rgb.r;
+    }
+    else if (hsv.h < 300)
+    {
+        values[0] = &rgb.b;
+        values[1] = &rgb.r;
+        values[2] = &rgb.g;
+    }
+    else if (hsv.h < 360)
+    {
+        values[0] = &rgb.r;
+        values[1] = &rgb.b;
+        values[2] = &rgb.g;
+    }
+
+    hsv.h = ((hsv.h / 60) % 2 == 0) * (hsv.h % 60)
+        + ((hsv.h / 60) % 2 != 0) * (60 - hsv.h % 60);
+    uint16_t sm = 100 - (uint16_t)hsv.s;
+    uint16_t v1 = (255 * (uint16_t)hsv.h) / 60;
+    uint16_t v2 = (255 * sm) / 100;
+
+    *values[0] = (255 * (uint16_t)hsv.v) / 100;
+    *values[1] = (((v1 * sm) / 100) * (uint16_t)hsv.v) / 100;
+    *values[2] = (v2 * (uint16_t)hsv.v) / 100;
+
+    return rgb;
+}
+
+static inline bool
+within_distance_hsv(
+    color_hsv_t c1,
+    color_hsv_t c2,
+    int32_t distance)
+{
+    int32_t dh = (int32_t)c1.h - (int32_t)c2.h;
+    // int32_t ds = (int32_t)c1.s - (int32_t)c2.s;
+    // int32_t dv = (int32_t)c1.v - (int32_t)c2.v;
+    // return dh*dh + ds*ds + dv*dv <= distance * distance;
+    return dh*dh <= distance * distance;
 }
