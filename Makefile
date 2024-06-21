@@ -14,7 +14,7 @@ CLI_SRC_FILES  := $(shell find "$(CLI_SRC_DIR)" -name '*.c')
 CLI_OBJ_FILES  := $(CLI_SRC_FILES:%.c=$(BUILD_DIR)/%.o)
 CLI_DEPS_FILES := $(CLI_OBJ_FILES:%.o=$(BUILD_DIR)/%.d)
 
-CLI_LIBS  = sail sail-common
+CLI_LIBS  = sail sail-common sail-manip
 CLI_LIBS_FLAGS := $(addprefix -l,$(CLI_LIBS)) -L'$(TARGET_DIR)' -licc
 
 LIB_SRC_DIR     = ./lib
